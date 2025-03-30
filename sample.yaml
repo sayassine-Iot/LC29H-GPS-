@@ -1,0 +1,59 @@
+sample:
+  name: LC29H GPS Module Sample
+  description: |
+    Demonstrates communication with LC29H GPS module via UART,
+    including NMEA parsing and position data extraction.
+
+tests:
+  sample.basic.gps:
+    tags:
+      - GPS
+      - UART
+      - NMEA
+    filter: dt_enabled_alias_with_parent_compat("uart0", "nordic,nrf-uarte")
+    depends_on:
+      - uart
+      - uart_async_api
+    harness: console
+    timeout: 120
+    min_ram: 16
+    min_flash: 64
+    integration_platforms:
+      - nrf52840dk_nrf52840
+      - nrf9160dk_nrf9160
+      - nucleo_f411re
+    extra_args:
+      CONF_FILE: prj.conf
+      OVERLAY_CONFIG: overlay-uart.conf
+
+  sample.gps.parsing:
+    tags:
+      - GPS
+      - NMEA
+      - PARSING
+    filter: dt_enabled_alias_with_parent_compat("uart0", "nordic,nrf-uarte")
+    depends_on:
+      - uart
+      - libc
+    harness: console
+    integration_platforms:
+      - nrf52840dk_nrf52840
+      - nrf9160dk_nrf9160
+    extra_args:
+      CONF_FILE: prj.conf
+      OVERLAY_CONFIG: overlay-gps.conf
+
+  sample.gps.performance:
+    tags:
+      - GPS
+      - PERFORMANCE
+    filter: dt_enabled_alias_with_parent_compat("uart0", "nordic,nrf-uarte")
+    depends_on:
+      - timing
+      - uart
+    harness: console
+    timeout: 180
+    integration_platforms:
+      - nrf52840dk_nrf52840
+    extra_args:
+      CONF_FILE: prj_performance.conf
