@@ -8,16 +8,9 @@
 /* NMEA Command Macros */
 #define _EMPTY 0x00
 #define _COMPLETED 0x03
-#define NMEA_GPRMC 0x01
-#define NMEA_GPGGA 0x02
-#define NMEA_GPVTG 0x03
-#define NMEA_GPGSA 0x04
-#define NMEA_GPGSV 0x05
-#define NMEA_GNGGA 0x06  
-#define NMEA_GNRMC 0x07  
-#define NMEA_UNKNOWN 0x00
 #define NMEA_CHECKSUM_ERR 0x80
 #define NMEA_MESSAGE_ERR 0xC0
+#define NMEA_MAX_LEN 82
 
 /* LC29H-Specific Commands */
 #define LC29H_VERNO_CMD        "$PQTMVERNO*\r\n"
@@ -61,44 +54,97 @@
 #define NMEA_DISABLE_ALL_NMEA  "$PMTK314,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n" // Disable all messages
 #define NMEA_SAVE_CONFIG       "$PMTK397*26\r\n"       // Save current settings to flash
 #define NMEA_QUERY_FW_VER      "$PMTK605*31\r\n"       // Query firmware version
-#define NMEA_GPRMC_WORD        "GPRMC"
-#define NMEA_GPGGA_WORD        "GPGGA"
-#define NMEA_GPVTG_WORD        "GPVTG"  // Velocity information
-#define NMEA_GPGSA_WORD        "GPGSA"  // Satellite status
-#define NMEA_GPGSV_WORD        "GPGSV"  // Satellites in view
 
-struct gpgga {
-    // Latitude eg: 4124.8963 (XXYY.ZZKK.. DEG, MIN, SEC.SS)
-    double latitude;
-    // Latitude eg: N
-    char lat;
-    // Longitude eg: 08151.6838 (XXXYY.ZZKK.. DEG, MIN, SEC.SS)
-    double longitude;
-    // Longitude eg: W
-    char lon;
-    // Quality 0, 1, 2
-    uint8_t quality;
-    // Number of satellites: 1,2,3,4,5...
-    uint8_t satellites;
-    // Altitude eg: 280.2 (Meters above mean sea level)
-    double altitude;
-};
-typedef struct gpgga gpgga_t;
+// NMEA Sentence Identifiers
+#define NMEA_GPGGA_WORD "$GPGGA"
+#define NMEA_GPRMC_WORD "$GPRMC"
+#define NMEA_GPVTG_WORD "$GPVTG"
+#define NMEA_GPGSA_WORD "$GPGSA"
+#define NMEA_GPGSV_WORD "$GPGSV"
+#define NMEA_GPGLL_WORD "$GPGLL"
+#define NMEA_GPZDA_WORD "$GPZDA"
+#define NMEA_GPGST_WORD "$GPGST"
+#define NMEA_GPGNS_WORD "$GPGNS"
+#define NMEA_PQVERNO_WORD "$PQVERNO"
 
-struct gprmc {
+/* GNSS Data Structure */
+typedef struct 
+{
+    // Common Fields (from GGA/RMC)
     double latitude;
-    char lat;
     double longitude;
-    char lon;
-    double speed;
-    double course;
-};
-typedef struct gprmc gprmc_t;
+    float altitude;
+    float speed;         // in km/h (from RMC/VTG)
+    float course;        // in degrees (from RMC/VTG)
+    int fix_quality;     // 0=invalid, 1=GPS, 2=DGPS, etc. (from GGA/GSA)
+    int satellites;      // Number of satellites in use (from GGA/GSA)
+    char timestamp[10];  // UTC time (HHMMSS.SS)
+    char date[10];       // UTC date (DDMMYY)
+
+    // Additional Fields (from other messages)
+    float hdop;          // Horizontal Dilution of Precision (from GSA)
+    float vdop;          // Vertical DOP (from GSA)
+    float pdop;          // Position DOP (from GSA)
+    float mag_var;       // Magnetic variation (from RMC)
+    char mode_indicator; // NMEA 4.1+ mode (A=Autonomous, D=DGPS, etc.) (from GNS/RMC)
+    char nav_status[20]; // Navigation status (from GNS)
+
+    // GSV (Satellites in View)
+    int total_sats_in_view;
+    struct {
+        int prn;         // Satellite PRN number
+        int elevation;  // Elevation in degrees
+        int azimuth;    // Azimuth in degrees
+        int snr;        // Signal-to-noise ratio (dB)
+    } sat_info[24];     // Max 24 satellites (4 per GSV sentence)
+
+    // GST (GNSS Pseudorange Errors)
+    float std_latitude;  // Standard deviation of latitude error (m)
+    float std_longitude; // Standard deviation of longitude error (m)
+    float std_altitude;  // Standard deviation of altitude error (m)
+
+    // ZDA (UTC Time & Date)
+    int utc_year;        // Full year (e.g., 2025)
+    int utc_month;       // Month (1-12)
+    int utc_day;         // Day (1-31)
+    int utc_hour;        // Hour (0-23)
+    int utc_min;         // Minute (0-59)
+    int utc_sec;         // Second (0-59)
+
+    // GRS (GNSS Range Residuals)
+    float range_residuals[12]; // Range residuals for each satellite (m)
+
+    // Firmware Info
+    char firmware_version[32];
+} GNSS_Data;
+
+// NMEA Message Types
+typedef enum 
+{
+    NMEA_UNKNOWN = 0,
+    NMEA_GPGGA,
+    NMEA_GPRMC,
+    NMEA_GPVTG,
+    NMEA_GPGSA,
+    NMEA_GPGSV,
+    NMEA_GPGLL,
+    NMEA_GPZDA,
+    NMEA_GPGST,
+    NMEA_GPGNS,
+    NMEA_PQVERNO,
+    NMEA_CHECKSUM_ERROR
+} NMEA_MessageType;
 
 uint8_t nmea_get_message_type(const char *);
 uint8_t nmea_valid_checksum(const char *);
-void nmea_parse_gpgga(char *, gpgga_t *);
-void nmea_parse_gprmc(char *, gprmc_t *);
+void nmea_parse_gpgll(const char *nmea, GNSS_Data *data);
+void nmea_parse_gpgga(const char *nmea, GNSS_Data *data);
+void nmea_parse_gprmc(const char *nmea, GNSS_Data *data);
+void nmea_parse_gpgsa(const char *nmea, GNSS_Data *data);
+void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data);
+//void nmea_parse_gpgst(const char *nmea, GNSS_Data *data);
+//void nmea_parse_gpzda(const char *nmea, GNSS_Data *data);
+//void nmea_parse_pqverno(const char *nmea, GNSS_Data *data);
 void nmea_send_cmd(const char *cmd);
 void nmea_read_response(char *buffer, size_t buf_size);
 void nmea_init(void);
