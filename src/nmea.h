@@ -8,7 +8,6 @@
 /* NMEA Command Macros */
 #define _EMPTY 0x00
 #define _COMPLETED 0x03
-#define NMEA_CHECKSUM_ERR 0x80
 #define NMEA_MESSAGE_ERR 0xC0
 #define NMEA_MAX_LEN 82
 
@@ -66,6 +65,19 @@
 #define NMEA_GPGST_WORD "$GPGST"
 #define NMEA_GPGNS_WORD "$GPGNS"
 #define NMEA_PQVERNO_WORD "$PQVERNO"
+
+// Declare missing macros and constants
+#define NMEA_GPGGA_WORD "$GPGGA"
+#define NMEA_GPRMC_WORD "$GPRMC"
+#define NMEA_GPVTG_WORD "$GPVTG"
+#define NMEA_GPGSA_WORD "$GPGSA"
+#define NMEA_GPGSV_WORD "$GPGSV"
+
+#define SAFE_STRNCPY(dest, src, size) \
+    do { \
+        strncpy(dest, src, size - 1); \
+        dest[size - 1] = '\0'; \
+    } while (0)
 
 /* GNSS Data Structure */
 typedef struct 
@@ -135,8 +147,8 @@ typedef enum
     NMEA_CHECKSUM_ERROR
 } NMEA_MessageType;
 
-uint8_t nmea_get_message_type(const char *);
-uint8_t nmea_valid_checksum(const char *);
+NMEA_MessageType nmea_get_message_type(const char *message);
+uint8_t nmea_valid_checksum(const char *message) ;
 void nmea_parse_gpgll(const char *nmea, GNSS_Data *data);
 void nmea_parse_gpgga(const char *nmea, GNSS_Data *data);
 void nmea_parse_gprmc(const char *nmea, GNSS_Data *data);
@@ -145,9 +157,6 @@ void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data);
 //void nmea_parse_gpgst(const char *nmea, GNSS_Data *data);
 //void nmea_parse_gpzda(const char *nmea, GNSS_Data *data);
 //void nmea_parse_pqverno(const char *nmea, GNSS_Data *data);
-void nmea_send_cmd(const char *cmd);
-void nmea_read_response(char *buffer, size_t buf_size);
-void nmea_init(void);
 
 #endif
 
