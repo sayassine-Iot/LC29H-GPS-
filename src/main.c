@@ -1,50 +1,83 @@
 #include <zephyr/kernel.h>
-#include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr/shell/shell.h>
-#include <string.h>
-#include <stdio.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/sys/ring_buffer.h>
 #include "nmea.h"
- 
-/* Configuration */
-#define NMEA_MAX_LENGTH 82      // Standard NMEA sentence max length
-#define NMEA_QUEUE_SIZE 10      // Number of messages to buffer
-#define STACK_SIZE 1024         // Processing thread stack size
-#define PRIORITY 7              // Processing thread priority
-
-#define RECEIVE_TIMEOUT_MS 100  // UART receive timeout
-#define TX_TIMEOUT_MS 1000  // Added transmission timeout
-#define RX_BUFFER_SIZE 128
 
 #define RESET_PIN  23
 #define WAKEUP_PIN 24
 #define VCC_PIN    25
+#define RX_BUF_SIZE 1
+#define SENTENCE_MAX_LEN 128
 
-/* Message queue for NMEA sentences */
-K_MSGQ_DEFINE(nmea_msgq, sizeof(char[NMEA_MAX_LENGTH]), NMEA_QUEUE_SIZE, 4);
- 
-/* UART device */
-static const struct device *const uart_dev = DEVICE_DT_GET(DT_NODELABEL(uart0));
-static uint8_t rx_buf[RX_BUFFER_SIZE];
+LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
 const struct device *gpio0_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+static const struct device *const uart_dev = DEVICE_DT_GET(DT_NODELABEL(uart0));
+static char sentence[SENTENCE_MAX_LEN];
+static uint16_t sentence_idx = 0;
 static volatile bool tx_done = false;
- 
-/* NMEA parsing state */
-static bool receiving_nmea = false;
-static char nmea_sentence[NMEA_MAX_LENGTH];
-static size_t nmea_index;
- 
-/* Forward declarations */
-static void handle_unknown(const char *sentence);
 
-void initialize_gps_module(void)
+// Work queue and work item
+K_THREAD_STACK_DEFINE(gnss_work_q_stack, 1024);
+struct k_work_q gnss_work_q;
+struct k_work gnss_work;
+
+// Ring buffer for thread-safe data transfer
+RING_BUF_DECLARE(gnss_ring_buf, 256);
+
+#ifdef SEND_MSG 
+// Checksum calculation
+static bool verify_nmea_checksum(const char *sentence)
+{
+    const char *asterisk = strchr(sentence, '*');
+    if (!asterisk || asterisk - sentence > SENTENCE_MAX_LEN - 3) 
+    {
+        return false;
+    }
+
+    uint8_t checksum = 0;
+    for (const char *p = sentence + 1; p < asterisk; p++) 
+    {
+        checksum ^= *p;
+    }
+
+    char checksum_str[3];
+    checksum_str[0] = *(asterisk + 1);
+    checksum_str[1] = *(asterisk + 2);
+    checksum_str[2] = '\0';
+
+    return checksum == strtoul(checksum_str, NULL, 16);
+}
+
+static void parse_nmea_sentence(const char *sentence)
+{
+    if (!verify_nmea_checksum(sentence)) 
+    {
+        LOG_WRN("Invalid checksum for: %s", sentence);
+        return;
+    }
+
+    // Check sentence type
+    if (strstr(sentence, "GNRMC") || strstr(sentence, "GPRMC")) {
+        LOG_DBG("Unhandled NMEA sentence: %s", sentence);
+    }
+    else if (strstr(sentence, "GNGGA") || strstr(sentence, "GPGGA")) {
+        LOG_DBG("Unhandled NMEA sentence: %s", sentence);
+    }
+    else {
+        LOG_DBG("Unhandled NMEA sentence: %s", sentence);
+    }
+}
+#endif
+
+static void initialize_gps_module(void)
 {
     // Configure GPIOs
     if (!device_is_ready(gpio0_dev)) 
     {
-        printk("GPIO device not ready\n");
+        LOG_ERR("GPIO device not ready\n");
     }
  
     // Configure all pins as outputs
@@ -67,247 +100,96 @@ void initialize_gps_module(void)
     gpio_pin_set(gpio0_dev, RESET_PIN, 1);
     k_msleep(500);  // Wait for module to boot
  
-    printk("GPS module initialized\n");
+    LOG_INF("GPS module initialized\n");
 }
- 
-static void handle_unknown(const char *sentence) 
+
+static void gnss_work_cb(struct k_work *work)
 {
-    char buffer[16]; // Local buffer to store the sentence type
- 
-    // Extract the first part of the sentence (e.g., "$GPGGA")
-    const char *delimiter = strchr(sentence, ','); // Find the first comma
-    if (delimiter != NULL)
+    uint8_t data;
+    size_t len;
+
+    while ((len = ring_buf_get(&gnss_ring_buf, &data, 1)) == 1) 
     {
-        size_t length = delimiter - sentence; // Calculate the length of the sentence type
-        if (length >= sizeof(buffer))
+        if (data == '$') 
         {
-            length = sizeof(buffer) - 1; // Ensure we don't overflow the buffer
+            // Start of new sentence
+            sentence_idx = 0;
+            sentence[sentence_idx++] = data;
         }
-        strncpy(buffer, sentence, length); // Copy the sentence type to buffer
-        buffer[length] = '\0'; // Null-terminate the string
-    } 
-    else 
-    {
-        strncpy(buffer, sentence, sizeof(buffer) - 1); // Handle case with no comma
-        buffer[sizeof(buffer) - 1] = '\0'; // Null-terminate the string
-    }
- 
-    printk("UNKNOWN: %s\n", buffer); // Print the extracted sentence type
-}
- 
-/* UART Transmission Function */
-int send_nmea_message(const char *sentence)
-{
-    if (!device_is_ready(uart_dev)) 
-    {
-        printk("UART device not ready\n");
-        return -ENODEV;
-    }
-
-    size_t len = strlen(sentence);
-    int ret;
-    int attempts = 0;
-    const int max_attempts = 3;
-
-    while (attempts < max_attempts) 
-    {
-        // Convert timeout to milliseconds as expected by uart_tx
-        ret = uart_tx(uart_dev, (const uint8_t *)sentence, len, TX_TIMEOUT_MS);
-        
-        if (ret == 0) 
+        else if ((sentence_idx > 0) && (sentence_idx < SENTENCE_MAX_LEN - 1))
         {
-            printk("TX successful: %s", sentence);
-            return 0;
-        }
-        
-        printk("TX attempt %d failed: %d\n", attempts + 1, ret);
-        k_sleep(K_MSEC(100));  // Short delay between attempts
-        attempts++;
-    }
-
-    printk("Failed to send after %d attempts: %s", max_attempts, sentence);
-    return -EIO;
-}
- 
-/* UART Callback Handler */
-static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data)
-{
-    switch (evt->type) 
-    {
-        case UART_TX_DONE:
-            printk("UART TX completed successfully\n");
-            tx_done = true;
-        break;
-        case UART_TX_ABORTED:
-            printk("UART TX aborted!\n");
-            tx_done = true;
-        break;
-        case UART_RX_RDY: 
-            const uint8_t *data = &evt->data.rx.buf[evt->data.rx.offset];
-            size_t len = evt->data.rx.len;
- 
-            for (size_t i = 0; i < len; ++i) 
+            sentence[sentence_idx++] = data;
+            
+            // Check for complete sentence
+            if (data == '\n') 
             {
-                char c = data[i];
-                if (c == '$') 
-                {
-                    // Start of new sentence
-                    receiving_nmea = true;
-                    nmea_index = 0;
-                    nmea_sentence[nmea_index++] = c;
-                } 
-                else if (receiving_nmea) 
-                {
-                    // Check buffer bounds (leave room for \n and \0)
-                    if (nmea_index < NMEA_MAX_LENGTH - 2) 
-                    {
-                        nmea_sentence[nmea_index++] = c;
-                        // End of sentence
-                        if (c == '\n') 
-                        {
-                            nmea_sentence[nmea_index] = '\0';
-                            receiving_nmea = false;
-                         
-                            // Add to queue (non-blocking)
-                            if (k_msgq_put(&nmea_msgq, nmea_sentence, K_NO_WAIT) != 0) 
-                            {
-                                printk("Queue full, dropped: %s", nmea_sentence);
-                            }
-                        }
-                    }
-                    else 
-                    {
-                        // Sentence too long
-                        receiving_nmea = false;
-                        printk("NMEA too long, dropped\n");
-                    }
-                }
-            }
-        break;
-        case UART_RX_DISABLED:
-            uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), RECEIVE_TIMEOUT_MS);
-        break;
-        case UART_RX_STOPPED:
-            printk("UART RX stopped. Reason: %d\n", evt->data.rx_stop.reason);
-            uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), RECEIVE_TIMEOUT_MS);
-        break;
-        default:
-            printk("Unhandled event: %d\n", evt->data.rx_stop.reason);
-        break;
-    }
-}
-
-/* UART Initialization */
-static void uart_init(void)
-{
-    if (!device_is_ready(uart_dev)) 
-    {
-        printk("UART device not ready\n");
-        return;
-    }
- 
-    // Set callback
-    int ret = uart_callback_set(uart_dev, uart_cb, NULL);
-    if (ret < 0) 
-    {
-        printk("Cannot set UART callback (%d)\n", ret);
-        return;
-    }
-
-    // Start receiving
-    ret = uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), RECEIVE_TIMEOUT_MS);
-    if (ret < 0) 
-    {
-        printk("Cannot enable UART RX (%d)\n", ret);
-        return;
-    }
- 
-    printk("UART initialized\n");
-}
-
-/* NMEA Processing Thread */
-static void nmea_processing_thread(void *unused1, void *unused2, void *unused3)
-{
-    char sentence[NMEA_MAX_LENGTH];
-    uint8_t msgtype;
-    // Process complete NMEA message
-    GNSS_Data new_data = {0};
-     
-    while (1) 
-    {
-        // Wait for message (blocking)
-        if (k_msgq_get(&nmea_msgq, &sentence, K_FOREVER) == 0) 
-        {
-            // Dispatch to appropriate handler
-            msgtype = nmea_get_message_type(sentence);
-            if (msgtype == NMEA_CHECKSUM_ERROR) 
-            {
-                return;
-            }
-        
-            switch (msgtype) 
-            {
-                case NMEA_GPGGA:
-                    nmea_parse_gpgga(sentence,&new_data);
-                    // Print position information
-                    printk("Position: %.6f,%.6f ", new_data.latitude, new_data.longitude);
-                    printk("Alt: %.1f m Sats: %d/%d\n", (double)new_data.altitude, new_data.satellites, new_data.total_sats_in_view);
-                break;
-                case NMEA_GPRMC:
-                    nmea_parse_gprmc(sentence, &new_data);
-                break;
-                case NMEA_GPGLL:
-                    nmea_parse_gpgll(sentence, &new_data);
-                break;
-                case NMEA_GPGSV:
-                    nmea_parse_gpgsv(sentence, &new_data);
-                break;
-                case NMEA_GPGSA:
-                    nmea_parse_gpgsa(sentence, &new_data);
-                break; 
-                case NMEA_GPGST:
-                    //nmea_parse_gpgst(sentence, &new_data);
-                break;
-                case NMEA_GPZDA:
-                    //nmea_parse_gpzda(sentence, &new_data);
-                break;
-                case NMEA_GPGNS:
-                    // No direct parser in prototypes, could add if needed
-                break;
-                case NMEA_PQVERNO:
-                    //nmea_parse_pqverno(sentence, &new_data);
-                break;
-                default:
-                    // Unhandled message type
-                    handle_unknown(sentence);
-                break;
+                sentence[sentence_idx] = '\0';
+                nmea_processing(sentence);
+                sentence_idx = 0;
             }
         }
     }
 }
- 
-K_THREAD_DEFINE(nmea_thread, STACK_SIZE, nmea_processing_thread, NULL, NULL, NULL, PRIORITY, 0, 0);
- 
- /* Main Application */
+
+static void uart_isr(const struct device *dev, void *user_data)
+{
+    ARG_UNUSED(user_data);
+
+    if (!uart_irq_update(dev)) return;
+
+    while (uart_irq_rx_ready(dev)) 
+    {
+        uint8_t byte;
+        if (uart_fifo_read(dev, &byte, 1) == 1) 
+        {
+            if (ring_buf_put(&gnss_ring_buf, &byte, 1) != 1) 
+            {
+                LOG_WRN("Ring buffer full!");
+            }
+            k_work_submit_to_queue(&gnss_work_q, &gnss_work);
+        }
+    }
+}
+
 int main(void)
 {
     initialize_gps_module();
-    uart_init();
-    
+
+    if (!device_is_ready(uart_dev)) 
+    {
+        LOG_ERR("UART device not ready");
+        return 0;
+    }
+
+    // Initialize work queue
+    k_work_queue_init(&gnss_work_q);
+    k_work_queue_start(&gnss_work_q, gnss_work_q_stack,
+                      K_THREAD_STACK_SIZEOF(gnss_work_q_stack),
+                      CONFIG_MAIN_THREAD_PRIORITY, NULL);
+    k_work_init(&gnss_work, gnss_work_cb);
+
+    // Setup UART interrupt
+    uart_irq_callback_user_data_set(uart_dev, uart_isr, NULL);
+    uart_irq_rx_enable(uart_dev);
+
+    LOG_INF("GNSS parser started");
+#ifdef SEND_MSG 
     send_nmea_message("$PQTMVER*58\r\n");
-    /*send_nmea_message("$PAIR062,1,1*3F\r\n");
+    send_nmea_message("$PAIR062,1,1*3F\r\n");
     send_nmea_message("$PAIR062,2,1*3C\r\n");
     send_nmea_message("$PAIR062,3,1*3D\r\n");
     send_nmea_message("$PAIR062,4,1*3A\r\n");
-    send_nmea_message("$PAIR062,5,1*3B\r\n");*/
-    
+    send_nmea_message("$PAIR062,5,1*3B\r\n");
+                   
     if(tx_done == true)
     {
         send_nmea_message("$PQTMRESTOREPAR*13\r\n");
         tx_done = false;
     }
-    
-    printk("NMEA Parser started\n");
-    printk("Use 'send_pair' shell command to transmit $PAIR062 message\n");
+#endif
+    while (1) 
+    {
+        k_sleep(K_SECONDS(10));
+        LOG_INF("Parser still running...");
+    }
 }
- 

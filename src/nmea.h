@@ -29,7 +29,6 @@
 #define LC29H_ENABLE_ZDA       "$PAIR062,6,1*\r\n"
 #define LC29H_ENABLE_GRS       "$PAIR062,7,1*\r\n"
 #define LC29H_ENABLE_GST       "$PAIR062,8,1*\r\n"
-#define LC29H_GET_FW_VER       "$PQVERNO*48\r\n"
 #define LC29H_RESET_CMD        "$PQTXT,RST*3B"
 #define LC29H_ENABLE_NMEA_CMD  "$PQTXT,W,VER,1,0,0,1,1,1,1,1,1,1*2D"
 #define LC29H_UPDATE_RATE_CMD  "$PQTXT,W,UPDATE,100*2F"
@@ -65,13 +64,6 @@
 #define NMEA_GPGST_WORD "$GPGST"
 #define NMEA_GPGNS_WORD "$GPGNS"
 #define NMEA_PQVERNO_WORD "$PQVERNO"
-
-// Declare missing macros and constants
-#define NMEA_GPGGA_WORD "$GPGGA"
-#define NMEA_GPRMC_WORD "$GPRMC"
-#define NMEA_GPVTG_WORD "$GPVTG"
-#define NMEA_GPGSA_WORD "$GPGSA"
-#define NMEA_GPGSV_WORD "$GPGSV"
 
 #define SAFE_STRNCPY(dest, src, size) \
     do { \
@@ -147,16 +139,6 @@ typedef enum
     NMEA_CHECKSUM_ERROR
 } NMEA_MessageType;
 
-NMEA_MessageType nmea_get_message_type(const char *message);
-uint8_t nmea_valid_checksum(const char *message) ;
-void nmea_parse_gpgll(const char *nmea, GNSS_Data *data);
-void nmea_parse_gpgga(const char *nmea, GNSS_Data *data);
-void nmea_parse_gprmc(const char *nmea, GNSS_Data *data);
-void nmea_parse_gpgsa(const char *nmea, GNSS_Data *data);
-void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data);
-//void nmea_parse_gpgst(const char *nmea, GNSS_Data *data);
-//void nmea_parse_gpzda(const char *nmea, GNSS_Data *data);
-//void nmea_parse_pqverno(const char *nmea, GNSS_Data *data);
-
+void nmea_processing(const char *message);
 #endif
 
