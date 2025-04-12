@@ -3,13 +3,14 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/ring_buffer.h>
+#include "shellnmea.h"
 #include "nmea.h"
 
 #define RESET_PIN  23
 #define WAKEUP_PIN 24
 #define VCC_PIN    25
-#define RX_BUF_SIZE 1
 #define SENTENCE_MAX_LEN 128
+#define TX_TIMEOUT_MS 1000 
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -27,7 +28,7 @@ struct k_work gnss_work;
 // Ring buffer for thread-safe data transfer
 RING_BUF_DECLARE(gnss_ring_buf, 256);
 
-#ifdef SEND_MSG 
+#ifdef NMEA_TEST 
 // Checksum calculation
 static bool verify_nmea_checksum(const char *sentence)
 {
@@ -151,8 +152,43 @@ static void uart_isr(const struct device *dev, void *user_data)
     }
 }
 
+int send_nmea_message(const char *sentence)
+{
+    if (!device_is_ready(uart_dev)) 
+    {
+        LOG_ERR("UART device not ready\n");
+        return -ENODEV;
+    }
+
+    size_t len = strlen(sentence);
+    int ret;
+    int attempts = 0;
+    const int max_attempts = 3;
+
+    while (attempts < max_attempts) 
+    {
+        // Convert timeout to milliseconds as expected by uart_tx
+        ret = uart_tx(uart_dev, (const uint8_t *)sentence, len, TX_TIMEOUT_MS);
+        
+        if (ret == 0) 
+        {
+            LOG_INF("TX successful: %s", sentence);
+            tx_done = true;
+            return 0;
+        }
+        
+        k_sleep(K_MSEC(100));  // Short delay between attempts
+        attempts++;
+    }
+
+    LOG_ERR("Failed to send after %d attempts: %s", max_attempts, sentence);
+    return -EIO;
+}
+
 int main(void)
 {
+    print_xtracker();
+
     initialize_gps_module();
 
     if (!device_is_ready(uart_dev)) 
@@ -171,9 +207,8 @@ int main(void)
     // Setup UART interrupt
     uart_irq_callback_user_data_set(uart_dev, uart_isr, NULL);
     uart_irq_rx_enable(uart_dev);
-
-    LOG_INF("GNSS parser started");
-#ifdef SEND_MSG 
+    
+#ifdef NMEA_TEST 
     send_nmea_message("$PQTMVER*58\r\n");
     send_nmea_message("$PAIR062,1,1*3F\r\n");
     send_nmea_message("$PAIR062,2,1*3C\r\n");
@@ -186,10 +221,11 @@ int main(void)
         send_nmea_message("$PQTMRESTOREPAR*13\r\n");
         tx_done = false;
     }
-#endif
+
     while (1) 
     {
         k_sleep(K_SECONDS(10));
         LOG_INF("Parser still running...");
     }
+#endif
 }

@@ -140,5 +140,6 @@ typedef enum
 } NMEA_MessageType;
 
 void nmea_processing(const char *message);
+int send_nmea_message(const char *sentence);
 #endif
 
