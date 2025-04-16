@@ -16,6 +16,7 @@ LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
 const struct device *gpio0_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static const struct device *const uart_dev = DEVICE_DT_GET(DT_NODELABEL(uart0));
+static const struct device *const uart_dev1 = DEVICE_DT_GET(DT_NODELABEL(uart1));
 static char sentence[SENTENCE_MAX_LEN];
 static uint16_t sentence_idx = 0;
 static volatile bool tx_done = false;
@@ -100,8 +101,6 @@ static void initialize_gps_module(void)
     k_msleep(100);  // Hold reset low
     gpio_pin_set(gpio0_dev, RESET_PIN, 1);
     k_msleep(500);  // Wait for module to boot
- 
-    LOG_INF("GPS module initialized\n");
 }
 
 static void gnss_work_cb(struct k_work *work)
@@ -160,6 +159,7 @@ int send_nmea_message(const char *sentence)
         return -ENODEV;
     }
 
+#ifdef NMEA_TEST
     size_t len = strlen(sentence);
     int ret;
     int attempts = 0;
@@ -180,9 +180,21 @@ int send_nmea_message(const char *sentence)
         k_sleep(K_MSEC(100));  // Short delay between attempts
         attempts++;
     }
-
-    LOG_ERR("Failed to send after %d attempts: %s", max_attempts, sentence);
+    LOG_ERR("Failed to send after %d attempts error: %d", max_attempts, ret);
     return -EIO;
+#else
+    for (int i = 0; sentence[i] != '\0'; i++) 
+    {
+        char ch = sentence[i];
+        uart_poll_out(uart_dev, ch);
+
+        if (sentence[i] == '\n') 
+        {
+            return 0;
+        }
+    }
+#endif
+    return 0;
 }
 
 int main(void)
@@ -197,6 +209,14 @@ int main(void)
         return 0;
     }
 
+    if (!device_is_ready(uart_dev1)) 
+    {
+        LOG_ERR("UART1 device not ready");
+        return 0;
+    }
+    
+    nmea_init();
+    
     // Initialize work queue
     k_work_queue_init(&gnss_work_q);
     k_work_queue_start(&gnss_work_q, gnss_work_q_stack,

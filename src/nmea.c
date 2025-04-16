@@ -6,9 +6,20 @@
 #include <math.h>
 #include "nmea.h"
 
+GNSS_Data *gnss_data = NULL;
+
 LOG_MODULE_REGISTER(nmea, CONFIG_LOG_DEFAULT_LEVEL);
 
-void nmea_parse_gpgga(const char *nmea, GNSS_Data *data)
+void nmea_init(void)
+{
+    gnss_data = malloc(sizeof(GNSS_Data));
+    if (gnss_data != NULL) 
+    {
+        memset(gnss_data, 0, sizeof(GNSS_Data));
+    }
+}
+
+void nmea_parse_gpgga(const char *nmea)
 {
     char *token; 
     char copy[NMEA_MAX_LEN];
@@ -22,25 +33,25 @@ void nmea_parse_gpgga(const char *nmea, GNSS_Data *data)
         switch (field) 
         {
             case 1:  // Timestamp (HHMMSS.SSS)
-                SAFE_STRNCPY(data->timestamp, token, sizeof(data->timestamp));
+                SAFE_STRNCPY(gnss_data->timestamp, token, sizeof(gnss_data->timestamp));
                 break;
             case 2:  // Latitude (DDMM.MMMM)
-                data->latitude = atof(token) / 100.0;
+                gnss_data->latitude = atof(token) / 100.0;
                 break;
             case 3:  // Latitude direction (N/S)
-                if (*token == 'S') data->latitude *= -1;
+                if (*token == 'S') gnss_data->latitude *= -1;
                 break;
             case 4:  // Longitude (DDDMM.MMMM)
-                data->longitude = atof(token) / 100.0;
+                gnss_data->longitude = atof(token) / 100.0;
                 break;
             case 5:  // Longitude direction (E/W)
-                if (*token == 'W') data->longitude *= -1;
+                if (*token == 'W') gnss_data->longitude *= -1;
                 break;
             case 7:  // Satellites in use
-                data->satellites = atoi(token);
+                gnss_data->satellites = atoi(token);
                 break;
             case 9:  // Altitude (meters)
-                data->altitude = atof(token);
+                gnss_data->altitude = atof(token);
                 break;
         }
         token = strtok(NULL, ",");
@@ -48,7 +59,7 @@ void nmea_parse_gpgga(const char *nmea, GNSS_Data *data)
     }
 }
 
-void nmea_parse_gprmc(const char *nmea, GNSS_Data *data)
+void nmea_parse_gprmc(const char *nmea)
 {
     char *token;
     char copy[NMEA_MAX_LEN];
@@ -62,22 +73,22 @@ void nmea_parse_gprmc(const char *nmea, GNSS_Data *data)
         switch (field) 
         {
             case 1:  // Timestamp (HHMMSS.SSS)
-                SAFE_STRNCPY(data->timestamp, token, sizeof(data->timestamp));
+                SAFE_STRNCPY(gnss_data->timestamp, token, sizeof(gnss_data->timestamp));
                 break;
             case 2:  // Status (A=active, V=void)
-                //data->status = *token;
+                //gnss_data->status = *token;
                 break;
             case 3:  // Latitude (DDMM.MMMM)
-                data->latitude = atof(token) / 100.0;
+                gnss_data->latitude = atof(token) / 100.0;
                 break;
             case 4:  // Latitude direction (N/S)
-                if (*token == 'S') data->latitude *= -1;
+                if (*token == 'S') gnss_data->latitude *= -1;
                 break;
             case 5:  // Longitude (DDDMM.MMMM)
-                data->longitude = atof(token) / 100.0;
+                gnss_data->longitude = atof(token) / 100.0;
                 break;
             case 6:  // Longitude direction (E/W)
-                if (*token == 'W') data->longitude *= -1;
+                if (*token == 'W') gnss_data->longitude *= -1;
                 break;
             case 7:  // Speed (knots)
                 // Can be parsed if needed
@@ -87,8 +98,8 @@ void nmea_parse_gprmc(const char *nmea, GNSS_Data *data)
         field++;
     }
 }
-
-void nmea_parse_gpgsa(const char *nmea, GNSS_Data *data) 
+#ifdef GSA
+void nmea_parse_gpgsa(const char *nmea) 
 {
     char *token;
     char copy[NMEA_MAX_LEN];
@@ -102,24 +113,26 @@ void nmea_parse_gpgsa(const char *nmea, GNSS_Data *data)
         switch (field) 
         {
             case 2:  // Fix Type (1=No fix, 2=2D, 3=3D)
-                data->fix_quality = atoi(token);
+                gnss_data->fix_quality = atoi(token);
                 break;
             case 15: // PDOP
-                data->pdop = atof(token);
+                gnss_data->pdop = atof(token);
                 break;
             case 16: // HDOP
-                data->hdop = atof(token);
+                gnss_data->hdop = atof(token);
                 break;
             case 17: // VDOP
-                data->vdop = atof(token);
+                gnss_data->vdop = atof(token);
                 break;
         }
         token = strtok(NULL, ",");
         field++;
     }
 }
+#endif
 
-void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data) 
+#ifdef GSV
+void nmea_parse_gpgsv(const char *nmea) 
 {
     char *token;
     char copy[NMEA_MAX_LEN];
@@ -134,7 +147,7 @@ void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data)
         switch (field) 
         {
             case 3:  // Total Satellites in View
-                data->total_sats_in_view = atoi(token);
+                gnss_data->total_sats_in_view = atoi(token);
                 break;
             case 4:  // Satellite PRN (first of up to 4 per message)
             case 8:  // Second satellite
@@ -142,7 +155,7 @@ void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data)
             case 16: // Fourth satellite
                 if (sat_index < 24) 
                 {
-                    data->sat_info[sat_index].prn = atoi(token);
+                    gnss_data->sat_info[sat_index].prn = atoi(token);
                     sat_index++;
                 }
                 break;
@@ -152,7 +165,7 @@ void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data)
             case 17: // Fourth satellite
                 if (sat_index > 0) 
                 {
-                    data->sat_info[sat_index-1].elevation = atoi(token);
+                    gnss_data->sat_info[sat_index-1].elevation = atoi(token);
                 }
                 break;
             case 6:  // Azimuth (first satellite)
@@ -161,7 +174,7 @@ void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data)
             case 18: // Fourth satellite
                 if (sat_index > 0) 
                 {
-                    data->sat_info[sat_index-1].azimuth = atoi(token);
+                    gnss_data->sat_info[sat_index-1].azimuth = atoi(token);
                 }
                 break;
             case 7:  // SNR (first satellite)
@@ -170,7 +183,7 @@ void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data)
             case 19: // Fourth satellite
                 if (sat_index > 0) 
                 {
-                    data->sat_info[sat_index-1].snr = atoi(token);
+                    gnss_data->sat_info[sat_index-1].snr = atoi(token);
                 }
                 break;
         }
@@ -178,8 +191,10 @@ void nmea_parse_gpgsv(const char *nmea, GNSS_Data *data)
         field++;
     }
 }
+#endif
 
-void nmea_parse_gpvtg(const char *nmea, GNSS_Data *data) 
+#ifdef VTG
+void nmea_parse_gpvtg(const char *nmea) 
 {
     char *token;
     char copy[NMEA_MAX_LEN];
@@ -193,18 +208,20 @@ void nmea_parse_gpvtg(const char *nmea, GNSS_Data *data)
         switch (field) 
         {
             case 1:  // True Course (degrees)
-                data->course = atof(token);
+                gnss_data->course = atof(token);
                 break;
             case 7:  // Speed (km/h)
-                data->speed = atof(token);
+                gnss_data->speed = atof(token);
                 break;
         }
         token = strtok(NULL, ",");
         field++;
     }
 }
+#endif
 
-void nmea_parse_gpgll(const char *nmea, GNSS_Data *data) 
+#ifdef GLL
+void nmea_parse_gpgll(const char *nmea) 
 {
     char *token;
     char copy[NMEA_MAX_LEN];
@@ -218,26 +235,47 @@ void nmea_parse_gpgll(const char *nmea, GNSS_Data *data)
         switch (field) 
         {
             case 1:  // Latitude (DDMM.MMMM)
-                data->latitude = atof(token) / 100.0;
+                gnss_data->latitude = atof(token) / 100.0;
                 break;
             case 2:  // N/S
-                if (*token == 'S') data->latitude *= -1;
+                if (*token == 'S') gnss_data->latitude *= -1;
                 break;
             case 3:  // Longitude (DDDMM.MMMM)
-                data->longitude = atof(token) / 100.0;
+                gnss_data->longitude = atof(token) / 100.0;
                 break;
             case 4:  // E/W
-                if (*token == 'W') data->longitude *= -1;
+                if (*token == 'W') gnss_data->longitude *= -1;
                 break;
             case 5:  // UTC Time (HHMMSS.SSS)
-                SAFE_STRNCPY(data->timestamp, token, sizeof(data->timestamp));
+                SAFE_STRNCPY(gnss_data->timestamp, token, sizeof(gnss_data->timestamp));
                 break;
             case 6:  // Status (A=Valid, V=Invalid)
-                data->fix_quality = (*token == 'A') ? 1 : 0;
+                gnss_data->fix_quality = (*token == 'A') ? 1 : 0;
                 break;
         }
         token = strtok(NULL, ",");
         field++;
+    }
+}
+#endif
+void parse_pqverno(const char *sentence) 
+{
+    char copy[NMEA_MAX_LEN];
+    SAFE_STRNCPY(copy, sentence, sizeof(copy));
+    copy[sizeof(copy)-1] = '\0';
+
+    char *token = strtok(copy, ",");
+    int index = 0;
+    while (token != NULL) 
+    {
+        if (index == 2) 
+        {  // SW Version is usually the 3rd token
+            strncpy(gnss_data->firmware_version, token, sizeof(gnss_data->firmware_version));
+            gnss_data->firmware_version[sizeof(gnss_data->firmware_version)-1] = '\0';
+            break;
+        }
+        token = strtok(NULL, ",");
+        index++;
     }
 }
 
@@ -263,24 +301,29 @@ uint8_t nmea_valid_checksum(const char *sentence)
 
 NMEA_MessageType nmea_get_message_type(const char *sentence) 
 {
+    char *token;
+    char copy[NMEA_MAX_LEN];
+    SAFE_STRNCPY(copy, sentence, sizeof(copy));
     // Validate checksum first
     uint8_t checksum_status = nmea_valid_checksum(sentence);
     if (checksum_status == NMEA_CHECKSUM_ERROR) 
     {
         return NMEA_CHECKSUM_ERROR;
     }
+    
+    token = strtok(copy, ",");
 
-    // Detect sentence type
-    if (strstr(sentence, NMEA_GPGGA_WORD) != NULL) return NMEA_GPGGA;
-    if (strstr(sentence, NMEA_GPRMC_WORD) != NULL) return NMEA_GPRMC;
-    if (strstr(sentence, NMEA_GPVTG_WORD) != NULL) return NMEA_GPVTG;
-    if (strstr(sentence, NMEA_GPGSA_WORD) != NULL) return NMEA_GPGSA;
-    if (strstr(sentence, NMEA_GPGSV_WORD) != NULL) return NMEA_GPGSV;
-    if (strstr(sentence, NMEA_GPGLL_WORD) != NULL) return NMEA_GPGLL;
-    if (strstr(sentence, NMEA_GPZDA_WORD) != NULL) return NMEA_GPZDA;
-    if (strstr(sentence, NMEA_GPGST_WORD) != NULL) return NMEA_GPGST;
-    if (strstr(sentence, NMEA_GPGNS_WORD) != NULL) return NMEA_GPGNS;
-    if (strstr(sentence, NMEA_PQVERNO_WORD) != NULL) return NMEA_PQVERNO;
+    // Detect token type
+    if (strstr(token, NMEA_GPGGA_WORD) != NULL) return NMEA_GPGGA;
+    if (strstr(token, NMEA_GPRMC_WORD) != NULL) return NMEA_GPRMC;
+    if (strstr(token, NMEA_GPVTG_WORD) != NULL) return NMEA_GPVTG;
+    if (strstr(token, NMEA_GPGSA_WORD) != NULL) return NMEA_GPGSA;
+    if (strstr(token, NMEA_GPGSV_WORD) != NULL) return NMEA_GPGSV;
+    if (strstr(token, NMEA_GPGLL_WORD) != NULL) return NMEA_GPGLL;
+    if (strstr(token, NMEA_GPZDA_WORD) != NULL) return NMEA_GPZDA;
+    if (strstr(token, NMEA_GPGST_WORD) != NULL) return NMEA_GPGST;
+    if (strstr(token, NMEA_GPGNS_WORD) != NULL) return NMEA_GPGNS;
+    if (strstr(token, NMEA_PQVERNO_WORD) != NULL) return NMEA_PQVERNO;
 
     return NMEA_UNKNOWN;
 }
@@ -314,8 +357,6 @@ static void handle_unknown(const char *sentence)
 void nmea_processing(const char *sentence)
 {
     uint8_t msgtype;
-    // Process complete NMEA message
-    GNSS_Data new_data = {0};
      
     // Dispatch to appropriate handler
     msgtype = nmea_get_message_type(sentence);
@@ -327,31 +368,21 @@ void nmea_processing(const char *sentence)
     switch (msgtype) 
     {
         case NMEA_GPGGA:
-            nmea_parse_gpgga(sentence,&new_data);
+            nmea_parse_gpgga(sentence);
         break;
         case NMEA_GPRMC:
-            nmea_parse_gprmc(sentence, &new_data);
+            nmea_parse_gprmc(sentence);
         break;
         case NMEA_GPGLL:
-            nmea_parse_gpgll(sentence, &new_data);
-        break;
         case NMEA_GPGSV:
-            nmea_parse_gpgsv(sentence, &new_data);
-        break;
         case NMEA_GPGSA:
-            nmea_parse_gpgsa(sentence, &new_data);
-        break; 
         case NMEA_GPGST:
-            //nmea_parse_gpgst(sentence, &new_data);
-        break;
         case NMEA_GPZDA:
-            //nmea_parse_gpzda(sentence, &new_data);
-        break;
         case NMEA_GPGNS:
-            // No direct parser in prototypes, could add if needed
+            handle_unknown(sentence);
         break;
         case NMEA_PQVERNO:
-            //nmea_parse_pqverno(sentence, &new_data);
+            parse_pqverno(sentence);
         break;
         default:
             // Unhandled message type

@@ -5,6 +5,71 @@
 #include "gps.h"
 #include "nmea.h"
 
+// Number of days in each month for a non-leap year
+const int days_in_month[12] = { 31,28,31,30,31,30,31,31,30,31,30,31 };
+
+// Check if a year is a leap year
+int is_leap_year(int year) 
+{
+    return (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+}
+
+void timestamp_to_datetime(int timestamp, int *year, int *month, int *day, int *hour, int *minute, int *second) 
+{
+    // Unix time starts at 1970-01-01 00:00:00 UTC
+    int y = 1970;
+    int days;
+
+    // Extract time components from timestamp
+    *second = timestamp % 60;
+    timestamp /= 60;
+    *minute = timestamp % 60;
+    timestamp /= 60;
+    *hour = timestamp % 24;
+    timestamp /= 24;
+    days = timestamp;  // total days since 1970-01-01
+
+    // Calculate year
+    while (1) 
+    {
+        int days_in_year = is_leap_year(y) ? 366 : 365;
+        if (days >= days_in_year) 
+        {
+            days -= days_in_year;
+            y++;
+        } 
+        else 
+        {
+            break;
+        }
+    }
+    *year = y;
+
+    // Calculate month
+    int m = 0;
+    while (1) 
+    {
+        int dim = days_in_month[m];
+        if (m == 1 && is_leap_year(y)) 
+        { // February in leap year
+            dim = 29;
+        }
+        if (days >= dim) 
+        {
+            days -= dim;
+            m++;
+        } 
+        else 
+        {
+            break;
+        }
+    }
+    *month = m + 1;  // month is 1-based
+
+    // Remaining days is the day of the month
+    *day = days + 1; // day is 1-based
+}
+
 // Convert lat e lon to decimals (from deg)
 void gps_convert_deg_to_dec(double *latitude, char ns,  double *longitude, char we)
 {

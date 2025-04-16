@@ -14,15 +14,29 @@ static int cmd_swversion(const struct shell *shell, size_t argc, char **argv)
     ARG_UNUSED(argc);
     ARG_UNUSED(argv);
     
-    const char *version_cmd = "$PQTMVERNO*58\r\n";
-    
-    if (send_nmea_message(version_cmd) != 0) 
+    if (send_nmea_message(LC29H_VERNO_CMD) != 0) 
 	{
         shell_error(shell, "Failed to send version request");
         return -EIO;
     }
     
     shell_print(shell, "Requested software version from LH29C");
+    return 0;
+}
+
+static int cmd_show_swversion(const struct shell *shell, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+
+    if (gnss_data == NULL || strlen(gnss_data->firmware_version) == 0) 
+    {
+        shell_warn(shell, "Software version not available.");
+    }
+    else 
+    {
+        shell_print(shell, "Firmware version: %s", gnss_data->firmware_version);
+    }
     return 0;
 }
 
@@ -59,6 +73,7 @@ static int cmd_send_nmea(const struct shell *shell, size_t argc, char **argv)
 
 /* Shell command registration */
 SHELL_CMD_REGISTER(swversion, NULL, "Request software version from LH29C", cmd_swversion);
+SHELL_CMD_REGISTER(show_swversion, NULL, "Software version is", cmd_show_swversion);
 SHELL_CMD_ARG_REGISTER(send_nmea, NULL, "Send custom NMEA command to LH29C (include $ and *CRC)", cmd_send_nmea, 2, 0);
 
 void print_banner_char(char ch, int row) 
