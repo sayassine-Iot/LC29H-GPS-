@@ -1,9 +1,7 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include "gps.h"
-#include "nmea.h"
+
 
 // Number of days in each month for a non-leap year
 const int days_in_month[12] = { 31,28,31,30,31,30,31,31,30,31,30,31 };
@@ -14,7 +12,7 @@ int is_leap_year(int year)
     return (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
 }
 
-void timestamp_to_datetime(int timestamp, int *year, int *month, int *day, int *hour, int *minute, int *second) 
+void timestamp_to_datetime(uint32_t timestamp, uint16_t *year, uint8_t *month, uint8_t *day, uint8_t *hour, uint8_t *minute, uint8_t *second) 
 {
     // Unix time starts at 1970-01-01 00:00:00 UTC
     int y = 1970;
@@ -54,6 +52,7 @@ void timestamp_to_datetime(int timestamp, int *year, int *month, int *day, int *
         { // February in leap year
             dim = 29;
         }
+
         if (days >= dim) 
         {
             days -= dim;

@@ -19,6 +19,42 @@ void nmea_init(void)
     }
 }
 
+uint32_t nmea_parse_time(const char* time_str)
+{
+    if ((time_str == NULL) || (strlen(time_str) < 6))
+    {
+        return 0;  // Invalid time format
+    }
+
+    // Example time format: "123456.78" (hhmmss.sss)
+    uint32_t hours = 0, minutes = 0, seconds = 0, hundredths = 0;
+    char buffer[3] = {0};
+    
+    // Extract hours (first 2 digits)
+    strncpy(buffer, time_str, 2);
+    hours = atoi(buffer);
+    
+    // Extract minutes (next 2 digits)
+    strncpy(buffer, time_str + 2, 2);
+    minutes = atoi(buffer);
+    
+    // Extract seconds (next 2 digits)
+    strncpy(buffer, time_str + 4, 2);
+    seconds = atoi(buffer);
+    
+    // Find decimal point for hundredths
+    const char* decimal_ptr = strchr(time_str, '.');
+    if ((decimal_ptr != NULL) && (strlen(decimal_ptr) > 1))
+    {
+        // Take up to 2 digits after decimal
+        strncpy(buffer, decimal_ptr + 1, 2);
+        hundredths = atoi(buffer);
+    }
+    
+    // Combine into uint32_t timestamp (hhmmsshh format)
+    return (hours * 1000000) + (minutes * 10000) + (seconds * 100) + hundredths;
+}
+
 void nmea_parse_gpgga(const char *nmea)
 {
     char *token; 
@@ -33,7 +69,7 @@ void nmea_parse_gpgga(const char *nmea)
         switch (field) 
         {
             case 1:  // Timestamp (HHMMSS.SSS)
-                SAFE_STRNCPY(gnss_data->timestamp, token, sizeof(gnss_data->timestamp));
+                gnss_data->timestamp = nmea_parse_time(token);
                 break;
             case 2:  // Latitude (DDMM.MMMM)
                 gnss_data->latitude = atof(token) / 100.0;
@@ -73,7 +109,7 @@ void nmea_parse_gprmc(const char *nmea)
         switch (field) 
         {
             case 1:  // Timestamp (HHMMSS.SSS)
-                SAFE_STRNCPY(gnss_data->timestamp, token, sizeof(gnss_data->timestamp));
+                gnss_data->timestamp = nmea_parse_time(token);
                 break;
             case 2:  // Status (A=active, V=void)
                 //gnss_data->status = *token;
@@ -98,6 +134,69 @@ void nmea_parse_gprmc(const char *nmea)
         field++;
     }
 }
+
+void nmea_parse_gngga(const char *nmea)
+{
+    char copy[NMEA_MAX_LEN];
+    SAFE_STRNCPY(copy, nmea, sizeof(copy));
+
+    char *token = strtok(copy, ",");
+    int field = 0;
+
+    while (token != NULL) 
+    {
+        switch (field) 
+        {
+            case 1: // Time
+                gnss_data->timestamp = nmea_parse_time(token);
+                break;
+            case 2: // Latitude
+                gnss_data->latitude = atof(token) / 100.0;
+                break;
+            case 3: // N/S Indicator
+                //gnss_data->ns_indicator = *token;
+                //if (*token == 'S') gnss_data->latitude *= -1;
+                break;
+            case 4: // Longitude
+                gnss_data->longitude = atof(token) / 100.0;
+                break;
+            case 5: // E/W Indicator
+                //gnss_data->ew_indicator = *token;
+                //if (*token == 'W') gnss_data->longitude *= -1;
+                break;
+            case 6: // Fix Quality
+                gnss_data->fix_quality = atoi(token);
+                break;
+            case 7: // Number of Satellites
+                //gnss_data->num_satellites = atoi(token);
+                break;
+            case 8: // HDOP
+                //gnss_data->hdop = atof(token);
+                break;
+            case 9: // Altitude
+                gnss_data->altitude = atof(token);
+                break;
+            case 10: // Altitude Units
+                //gnss_data->altitude_units = *token;
+                break;
+            case 11: // Geoid Separation
+                //gnss_data->geoid_separation = atof(token);
+                break;
+            case 12: // Geoid Units
+                //gnss_data->geoid_units = *token;
+                break;
+            case 13: // Age of Differential Correction
+                //SAFE_STRNCPY(gnss_data->age_of_diff_corr, token, sizeof(gnss_data->age_of_diff_corr));
+                break;
+            case 14: // Diff Ref Station ID
+                //SAFE_STRNCPY(gnss_data->diff_ref_station_id, token, sizeof(gnss_data->diff_ref_station_id));
+                break;
+        }
+        token = strtok(NULL, ",");
+        field++;
+    }
+}
+
 #ifdef GSA
 void nmea_parse_gpgsa(const char *nmea) 
 {
@@ -316,13 +415,14 @@ NMEA_MessageType nmea_get_message_type(const char *sentence)
     // Detect token type
     if (strstr(token, NMEA_GPGGA_WORD) != NULL) return NMEA_GPGGA;
     if (strstr(token, NMEA_GPRMC_WORD) != NULL) return NMEA_GPRMC;
-    if (strstr(token, NMEA_GPVTG_WORD) != NULL) return NMEA_GPVTG;
-    if (strstr(token, NMEA_GPGSA_WORD) != NULL) return NMEA_GPGSA;
-    if (strstr(token, NMEA_GPGSV_WORD) != NULL) return NMEA_GPGSV;
-    if (strstr(token, NMEA_GPGLL_WORD) != NULL) return NMEA_GPGLL;
-    if (strstr(token, NMEA_GPZDA_WORD) != NULL) return NMEA_GPZDA;
-    if (strstr(token, NMEA_GPGST_WORD) != NULL) return NMEA_GPGST;
-    if (strstr(token, NMEA_GPGNS_WORD) != NULL) return NMEA_GPGNS;
+    if (strstr(token, NMEA_GNGGA_WORD) != NULL) return NMEA_GNGGA;
+    //if (strstr(token, NMEA_GPVTG_WORD) != NULL) return NMEA_GPVTG;
+    //if (strstr(token, NMEA_GPGSA_WORD) != NULL) return NMEA_GPGSA;
+    //if (strstr(token, NMEA_GPGSV_WORD) != NULL) return NMEA_GPGSV;
+    //if (strstr(token, NMEA_GPGLL_WORD) != NULL) return NMEA_GPGLL;
+    //if (strstr(token, NMEA_GPZDA_WORD) != NULL) return NMEA_GPZDA;
+    //if (strstr(token, NMEA_GPGST_WORD) != NULL) return NMEA_GPGST;
+    //if (strstr(token, NMEA_GPGNS_WORD) != NULL) return NMEA_GPGNS;
     if (strstr(token, NMEA_PQVERNO_WORD) != NULL) return NMEA_PQVERNO;
 
     return NMEA_UNKNOWN;
@@ -372,6 +472,9 @@ void nmea_processing(const char *sentence)
         break;
         case NMEA_GPRMC:
             nmea_parse_gprmc(sentence);
+        break;
+        case NMEA_GNGGA:
+            nmea_parse_gngga(sentence);
         break;
         case NMEA_GPGLL:
         case NMEA_GPGSV:

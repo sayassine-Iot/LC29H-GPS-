@@ -1,10 +1,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include "shellnmea.h"
 #include "nmea.h"
+#include "gps.h"
 
 LOG_MODULE_REGISTER(shellnmea, LOG_LEVEL_INF);
 
@@ -40,34 +39,71 @@ static int cmd_show_swversion(const struct shell *shell, size_t argc, char **arg
     return 0;
 }
 
+static uint8_t nmea_checksum(const char *sentence)
+{
+    uint8_t checksum = 0;
+    sentence++; 
+    while (*sentence && *sentence != '*') {
+        checksum ^= *sentence++;
+    }
+    return checksum;
+}
+
 /* Shell command handler: Custom NMEA command forwarding */
-static int cmd_send_nmea(const struct shell *shell, size_t argc, char **argv) 
+static int cmd_send_nmea(const struct shell *shell, size_t argc, char **argv)
 {
     if (argc != 2) 
-	{
-        shell_error(shell, "Usage: send_nmea \"<NMEA_CMD>\"");
-        shell_error(shell, "Example: send_nmea \"$PUBX,00*33\"");
+    {
+        shell_error(shell, "Usage: send_nmea <NMEA_CMD_NO_CHECKSUM>");
+        shell_error(shell, "Example: send_nmea $PUBX,00");
         return -EINVAL;
     }
 
-    // Validate minimum NMEA command format
-    if (strlen(argv[1]) < 6 || argv[1][0] != '$') 
-	{
+    const char *base = argv[1];
+
+    // Validate base sentence
+    if (strlen(base) < 6 || base[0] != '$') 
+    {
         shell_error(shell, "Invalid NMEA command format");
         return -EINVAL;
     }
 
-    // Format the command with proper termination
+    uint8_t checksum = nmea_checksum(base);
+
+    // Format full sentence with checksum and termination
     char cmd_buf[128];
-    snprintf(cmd_buf, sizeof(cmd_buf), "%s\r\n", argv[1]);
-    
+    snprintf(cmd_buf, sizeof(cmd_buf), "%s*%02X\r\n", base, checksum);
+
     if (send_nmea_message(cmd_buf) != 0) 
-	{
+    {
         shell_error(shell, "Failed to send NMEA command");
         return -EIO;
     }
-    
+
     shell_print(shell, "Sent to LH29C: %s", cmd_buf);
+    return 0;
+}
+
+static int cmd_read_nmea(const struct shell *shell, size_t argc, char **argv)
+{
+    uint32_t total_ms = gnss_data->timestamp;
+    uint16_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+
+    shell_print(shell, "%-25s: %.7f\n", "The Latitude is", gnss_data->latitude);
+    shell_print(shell, "%-25s: %.7f\n", "The Longitude is", gnss_data->longitude);
+    shell_print(shell, "%-25s: %.7f\n", "The Altitude is", (double)gnss_data->altitude);
+    
+    // Convert and print UTC time (milliseconds to HH:MM:SS.mmm) 
+    timestamp_to_datetime(total_ms, &year, &month, &day, &hour, &minute, &second); 
+    shell_print(shell, "%-25s: %d/%d/%d, %02u:%02u:%02u\n", "UTC Date Time", year, month, day, hour, minute, second);
     return 0;
 }
 
@@ -75,6 +111,7 @@ static int cmd_send_nmea(const struct shell *shell, size_t argc, char **argv)
 SHELL_CMD_REGISTER(swversion, NULL, "Request software version from LH29C", cmd_swversion);
 SHELL_CMD_REGISTER(show_swversion, NULL, "Software version is", cmd_show_swversion);
 SHELL_CMD_ARG_REGISTER(send_nmea, NULL, "Send custom NMEA command to LH29C (include $ and *CRC)", cmd_send_nmea, 2, 0);
+SHELL_CMD_REGISTER(read_nmea, NULL, "GPS data:", cmd_read_nmea);
 
 void print_banner_char(char ch, int row) 
 {

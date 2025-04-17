@@ -54,6 +54,7 @@
 #define NMEA_GPZDA_WORD "$GPZDA"
 #define NMEA_GPGST_WORD "$GPGST"
 #define NMEA_GPGNS_WORD "$GPGNS"
+#define NMEA_GNGGA_WORD "$GNGGA"
 #define NMEA_PQVERNO_WORD "$PQTMVERNO"
 
 #define SAFE_STRNCPY(dest, src, size) \
@@ -71,9 +72,9 @@ typedef struct
     float altitude;
     float speed;         // in km/h (from RMC/VTG)
     float course;        // in degrees (from RMC/VTG)
-    int fix_quality;     // 0=invalid, 1=GPS, 2=DGPS, etc. (from GGA/GSA)
-    int satellites;      // Number of satellites in use (from GGA/GSA)
-    char timestamp[10];  // UTC time (HHMMSS.SS)
+    uint8_t fix_quality;     // 0=invalid, 1=GPS, 2=DGPS, etc. (from GGA/GSA)
+    uint8_t satellites;      // Number of satellites in use (from GGA/GSA)
+    uint32_t timestamp;  // UTC time (HHMMSS.SS)
     char date[10];       // UTC date (DDMMYY)
 #ifdef GSA
     // Additional Fields (from other messages)
@@ -132,9 +133,24 @@ typedef enum
     NMEA_GPZDA,
     NMEA_GPGST,
     NMEA_GPGNS,
+    NMEA_GNGGA,
     NMEA_PQVERNO,
     NMEA_CHECKSUM_ERROR
 } NMEA_MessageType;
+
+typedef struct 
+{
+    uint8_t hours;
+    uint8_t minutes;
+    uint8_t seconds;
+} NMEA_Time;
+
+typedef struct 
+{
+    uint8_t day;
+    uint8_t month;
+    uint16_t year;  // 2-digit or 4-digit year depending on needs
+} NMEA_Date;
 
 void nmea_processing(const char *message);
 int send_nmea_message(const char *sentence);
