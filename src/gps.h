@@ -5,13 +5,24 @@
 #include <stdlib.h>
 #include <inttypes.h>
 
+#ifdef GPS_TEST
+// Define a structure to hold location data
+typedef struct 
+{
+    char name[50];
+    double latitude;
+    double longitude;
+} Location;
+
+void gps_find_location(GNSS_Data *data);
+#endif
+
 // Initialize device
 extern void gps_init(void);
 // Activate device
 extern void gps_on(void);
 // Turn off device (low-power consumption)
 extern void gps_off(void);
-
 void timestamp_to_datetime(uint32_t timestamp, uint16_t *year, uint8_t *month, uint8_t *day, uint8_t *hour, uint8_t *minute, uint8_t *second);
 
 // convert deg to decimal deg latitude, (N/S), longitude, (W/E)

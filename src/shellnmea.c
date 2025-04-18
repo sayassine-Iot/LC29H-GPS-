@@ -39,7 +39,7 @@ static int cmd_show_swversion(const struct shell *shell, size_t argc, char **arg
     return 0;
 }
 
-static uint8_t nmea_checksum(const char *sentence)
+static uint8_t shell_checksum(const char *sentence)
 {
     uint8_t checksum = 0;
     sentence++; 
@@ -68,7 +68,7 @@ static int cmd_send_nmea(const struct shell *shell, size_t argc, char **argv)
         return -EINVAL;
     }
 
-    uint8_t checksum = nmea_checksum(base);
+    uint8_t checksum = shell_checksum(base);
 
     // Format full sentence with checksum and termination
     char cmd_buf[128];
@@ -86,24 +86,19 @@ static int cmd_send_nmea(const struct shell *shell, size_t argc, char **argv)
 
 static int cmd_read_nmea(const struct shell *shell, size_t argc, char **argv)
 {
-    uint32_t total_ms = gnss_data->timestamp;
-    uint16_t year;
-    uint8_t month;
-    uint8_t day;
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
-
     ARG_UNUSED(argc);
     ARG_UNUSED(argv);
-
-    shell_print(shell, "%-25s: %.7f\n", "The Latitude is", gnss_data->latitude);
-    shell_print(shell, "%-25s: %.7f\n", "The Longitude is", gnss_data->longitude);
-    shell_print(shell, "%-25s: %.7f\n", "The Altitude is", (double)gnss_data->altitude);
+    if (!UTC_time.valid) 
+    {
+        shell_error(shell,"Invalid time\n");
+    }
     
-    // Convert and print UTC time (milliseconds to HH:MM:SS.mmm) 
-    timestamp_to_datetime(total_ms, &year, &month, &day, &hour, &minute, &second); 
-    shell_print(shell, "%-25s: %d/%d/%d, %02u:%02u:%02u\n", "UTC Date Time", year, month, day, hour, minute, second);
+    shell_print(shell,"%-25s: %02u:%02u:%02u.%03u\n", "UTC Time", UTC_time.hours, UTC_time.minutes, UTC_time.seconds, UTC_time.millis);
+    shell_print(shell,"%-25s: %.06lf\n", "The Latitude is", gnss_data->latitude);
+    shell_print(shell,"%-25s: %.06lf\n", "The Longitude is", gnss_data->longitude);
+    shell_print(shell,"%-25s: %.01lf\n", "The Altitude is", (double)gnss_data->altitude);
+    shell_print(shell,"https://www.google.com/maps?q=%.06lf,%.06lf&z=18\n", gnss_data->latitude, gnss_data->longitude);
+    
     return 0;
 }
 
@@ -111,7 +106,7 @@ static int cmd_read_nmea(const struct shell *shell, size_t argc, char **argv)
 SHELL_CMD_REGISTER(swversion, NULL, "Request software version from LH29C", cmd_swversion);
 SHELL_CMD_REGISTER(show_swversion, NULL, "Software version is", cmd_show_swversion);
 SHELL_CMD_ARG_REGISTER(send_nmea, NULL, "Send custom NMEA command to LH29C (include $ and *CRC)", cmd_send_nmea, 2, 0);
-SHELL_CMD_REGISTER(read_nmea, NULL, "GPS data:", cmd_read_nmea);
+SHELL_CMD_REGISTER(read_nmea, NULL, "Request the GPS data from LH29C", cmd_read_nmea);
 
 void print_banner_char(char ch, int row) 
 {

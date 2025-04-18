@@ -7,6 +7,7 @@
 #include "nmea.h"
 
 GNSS_Data *gnss_data = NULL;
+TimeStruct UTC_time = {0};
 
 LOG_MODULE_REGISTER(nmea, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -19,28 +20,38 @@ void nmea_init(void)
     }
 }
 
-uint32_t nmea_parse_time(const char* time_str)
+// Helper function: Convert NMEA (DDMM.MMMM or DDDMM.MMMM) to decimal degrees
+static double nmea_to_decimal(double nmea_coord) 
 {
+    int degrees = (int)(nmea_coord / 100);
+    double minutes = nmea_coord - (degrees * 100);
+    return degrees + (minutes / 60.0);
+}
+
+TimeStruct nmea_parse_time(const char* time_str)
+{
+    TimeStruct time = {0};
+    time.valid = false;
+
     if ((time_str == NULL) || (strlen(time_str) < 6))
     {
-        return 0;  // Invalid time format
+        return time;  // Invalid time format
     }
 
     // Example time format: "123456.78" (hhmmss.sss)
-    uint32_t hours = 0, minutes = 0, seconds = 0, hundredths = 0;
     char buffer[3] = {0};
     
     // Extract hours (first 2 digits)
     strncpy(buffer, time_str, 2);
-    hours = atoi(buffer);
+    time.hours = atoi(buffer);
     
     // Extract minutes (next 2 digits)
     strncpy(buffer, time_str + 2, 2);
-    minutes = atoi(buffer);
+    time.minutes = atoi(buffer);
     
     // Extract seconds (next 2 digits)
     strncpy(buffer, time_str + 4, 2);
-    seconds = atoi(buffer);
+    time.seconds = atoi(buffer);
     
     // Find decimal point for hundredths
     const char* decimal_ptr = strchr(time_str, '.');
@@ -48,11 +59,17 @@ uint32_t nmea_parse_time(const char* time_str)
     {
         // Take up to 2 digits after decimal
         strncpy(buffer, decimal_ptr + 1, 2);
-        hundredths = atoi(buffer);
+        time.millis = atoi(buffer);
     }
     
+    // Validate ranges
+    if (time.hours < 24 && time.minutes < 60 && time.seconds < 60) 
+    {
+        time.valid = true;
+    }
+
     // Combine into uint32_t timestamp (hhmmsshh format)
-    return (hours * 1000000) + (minutes * 10000) + (seconds * 100) + hundredths;
+    return time;
 }
 
 void nmea_parse_gpgga(const char *nmea)
@@ -69,16 +86,16 @@ void nmea_parse_gpgga(const char *nmea)
         switch (field) 
         {
             case 1:  // Timestamp (HHMMSS.SSS)
-                gnss_data->timestamp = nmea_parse_time(token);
+                UTC_time = nmea_parse_time(token);
                 break;
             case 2:  // Latitude (DDMM.MMMM)
-                gnss_data->latitude = atof(token) / 100.0;
+                gnss_data->latitude = nmea_to_decimal(atof(token));
                 break;
             case 3:  // Latitude direction (N/S)
                 if (*token == 'S') gnss_data->latitude *= -1;
                 break;
             case 4:  // Longitude (DDDMM.MMMM)
-                gnss_data->longitude = atof(token) / 100.0;
+                gnss_data->longitude = nmea_to_decimal(atof(token));
                 break;
             case 5:  // Longitude direction (E/W)
                 if (*token == 'W') gnss_data->longitude *= -1;
@@ -109,19 +126,19 @@ void nmea_parse_gprmc(const char *nmea)
         switch (field) 
         {
             case 1:  // Timestamp (HHMMSS.SSS)
-                gnss_data->timestamp = nmea_parse_time(token);
+                UTC_time = nmea_parse_time(token);
                 break;
             case 2:  // Status (A=active, V=void)
                 //gnss_data->status = *token;
                 break;
             case 3:  // Latitude (DDMM.MMMM)
-                gnss_data->latitude = atof(token) / 100.0;
+                gnss_data->latitude = nmea_to_decimal(atof(token));
                 break;
             case 4:  // Latitude direction (N/S)
                 if (*token == 'S') gnss_data->latitude *= -1;
                 break;
             case 5:  // Longitude (DDDMM.MMMM)
-                gnss_data->longitude = atof(token) / 100.0;
+                gnss_data->longitude = nmea_to_decimal(atof(token));
                 break;
             case 6:  // Longitude direction (E/W)
                 if (*token == 'W') gnss_data->longitude *= -1;
@@ -148,17 +165,17 @@ void nmea_parse_gngga(const char *nmea)
         switch (field) 
         {
             case 1: // Time
-                gnss_data->timestamp = nmea_parse_time(token);
+                UTC_time = nmea_parse_time(token);
                 break;
             case 2: // Latitude
-                gnss_data->latitude = atof(token) / 100.0;
+                gnss_data->latitude = nmea_to_decimal(atof(token));
                 break;
             case 3: // N/S Indicator
                 //gnss_data->ns_indicator = *token;
                 //if (*token == 'S') gnss_data->latitude *= -1;
                 break;
             case 4: // Longitude
-                gnss_data->longitude = atof(token) / 100.0;
+                gnss_data->longitude = nmea_to_decimal(atof(token));
                 break;
             case 5: // E/W Indicator
                 //gnss_data->ew_indicator = *token;

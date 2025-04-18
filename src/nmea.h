@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 /* NMEA Command Macros */
 #define _EMPTY 0x00
@@ -62,6 +63,17 @@
         strncpy(dest, src, size - 1); \
         dest[size - 1] = '\0'; \
     } while (0)
+
+    typedef struct 
+{
+    uint8_t hours;      // 0-23
+    uint8_t minutes;    // 0-59
+    uint8_t seconds;    // 0-59
+    uint16_t millis;    // 0-999
+    bool valid;         // true if time was parsed successfully
+} TimeStruct;
+
+extern TimeStruct UTC_time;
 
 /* GNSS Data Structure */
 typedef struct 
